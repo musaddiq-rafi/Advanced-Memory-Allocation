@@ -65,7 +65,6 @@ VMM (Virtual Memory Management)
 | `kern/lib/x86.h` | **Modify** | Add `CR4_PSE`, `PTE_PS` constant (already 0x080), `SYS_BRK` number |
 | `kern/lib/x86.c` | **Modify** | Add `enable_pse()` (set CR4.PSE bit) |
 | `kern/dev/idt.S` | No change | `T_SYSCALL` handler already in IDT |
-| `kern/init/init.c` | **Modify** | Register new test suites for advanced allocation |
 | `user/include/syscall.h` | **Modify** | Declare `brk()` prototype |
 | `user/lib/fake_syscall.c` | **Modify** | Implement userspace `brk()` stub (int $T_SYSCALL) |
 
@@ -490,7 +489,7 @@ void *brk(void *addr) {
 
 ## 5. Implementation Order
 
-The work is divided into 8 phases. Each phase builds on the previous and is independently testable.
+The work is divided into 7 phases. Each phase builds on the previous and is independently testable.
 
 ### Phase 1 — Extend AT Metadata (`MATIntro`)
 - Add `order`, `is_head` fields and getters/setters.
@@ -538,11 +537,6 @@ The work is divided into 8 phases. Each phase builds on the previous and is inde
 - Add `SYS_BRK` to `kern/lib/x86.h`.
 - Add userspace `brk()` stub.
 - **Files:** `kern/lib/trap.c`, `kern/lib/x86.h`, `user/include/syscall.h`, `user/lib/fake_syscall.c`
-
-### Phase 8 — Integration & Test Harness (`init.c`)
-- Register new test suites in `kern_main`.
-- End-to-end tests.
-- **Files:** `kern/init/init.c`
 
 ---
 
@@ -615,41 +609,10 @@ All test functions follow the existing convention: return 0 on pass, non-zero on
 | `MPTNew_test_brk_range` | `sys_brk` rejects addresses outside `[VM_USERLO, VM_USERHI]` |
 | `MPTNew_test_brk_superpage` | Growing break by 4 MB from a 4 MB-aligned start produces a super-page |
 | `MPTNew_test_brk_fragment` | Grow, shrink, grow pattern; verify pages are properly coalesced and re-usable |
-
-### 6.3 Integration / End-to-End Tests (in `init.c`)
-
-These run in the test harness alongside existing layer tests.
-
-| Test | What it verifies |
-|---|---|
-| `test_e2e_brk_alloc_free` | Simulate a user process: split quota, brk up, verify PTEs, brk down, verify pages freed, brk up again — verify re-use of freed physical memory |
-| `test_e2e_superpage_lifecycle` | Allocate 4 MB super-page via brk, verify PDE has PS bit, free via brk, verify PDE cleared |
-| `test_e2e_fragmentation` | Allocate many small blocks, free every other one, then allocate a large block — verify buddy coalescing handles it |
-| `test_e2e_multi_process` | Two child processes each call brk; verify physical pages don't overlap and quota is respected |
-
-### 6.4 Test Registration
-
-In `kern/init/init.c`, add:
-```c
-#ifdef TEST
-extern bool test_MATIntro(void);   // already there (implicitly via MContainer)
-extern bool test_MATOp(void);      // new: buddy tests
-extern bool test_MContainer(void); // extended
-extern bool test_MPTIntro(void);   // extended
-extern bool test_MPTKern(void);    // extended
-extern bool test_MPTNew(void);     // heavily extended
-extern bool test_AdvancedAlloc(void); // new: integration tests
-#endif
-```
-
-Add a new block in `kern_main`:
-```c
-dprintf("Testing Advanced Allocation...\n");
-if (test_AdvancedAlloc() == 0)
-    dprintf("All tests passed.\n");
-else
-    dprintf("Test failed.\n");
-```
+| `MPTNew_test_brk_alloc_free_reuse` | Split quota, brk up, verify PTEs, brk down, verify pages freed, brk up again — verify re-use of freed physical memory |
+| `MPTNew_test_superpage_lifecycle` | Allocate 4 MB super-page via brk, verify PDE has PS bit, free via brk, verify PDE cleared |
+| `MPTNew_test_fragmentation_coalesce` | Allocate many small blocks, free every other one, then allocate a large block — verify buddy coalescing handles it |
+| `MPTNew_test_multi_process_brk` | Two child processes each call sys_brk; verify physical pages don't overlap and quota is respected |
 
 ---
 
@@ -712,11 +675,10 @@ The buddy allocator's free-list lookup is O(1) per order level, and we have at m
 | `kern/lib/x86.h` | Add `CR4_PSE`, `SYS_BRK`, `MAX_ORDER` |
 | `kern/lib/x86.c` | Add `enable_pse()` |
 | `kern/lib/trap.c` | Add `T_SYSCALL` dispatch + `SYS_BRK` handler |
-| `kern/init/init.c` | Register new test suites |
 | `user/include/syscall.h` | Declare `brk()` |
 | `user/lib/fake_syscall.c` | Implement `brk()` stub |
 
-**Total: 15 files in `kern/pmm` + `kern/vmm` (primary), 6 files outside (thin glue).**
+**Total: 15 files in `kern/pmm` + `kern/vmm` (primary), 5 files outside (thin glue).**
 
 ---
 

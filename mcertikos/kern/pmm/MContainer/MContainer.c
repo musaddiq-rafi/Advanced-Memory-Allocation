@@ -25,6 +25,7 @@ void container_init(unsigned int mbi_addr)
    
 
     pmem_init(mbi_addr);
+    buddy_init();  // Build buddy free lists from the AT after pmem_init
     real_quota = 0;
 
     /**
@@ -145,4 +146,35 @@ void container_free(unsigned int id, unsigned int page_index)
     pfree(page_index);
     CONTAINER[id].usage--;
 
+}
+
+/**
+ * Allocates 2^order consecutive, aligned physical pages for process # [id].
+ * Checks the quota before allocating.
+ * Returns the starting page index, or 0 on failure.
+ */
+unsigned int container_alloc_n(unsigned int id, unsigned int order)
+{
+    unsigned int count = 1u << order;
+    unsigned int pid;
+
+    if (!container_can_consume(id, count))
+        return 0;
+
+    pid = palloc_n(order);
+    if (pid == 0)
+        return 0;
+
+    CONTAINER[id].usage += count;
+    return pid;
+}
+
+/**
+ * Frees a 2^order block of physical pages and reduces usage accordingly.
+ */
+void container_free_n(unsigned int id, unsigned int page_index, unsigned int order)
+{
+    unsigned int count = 1u << order;
+    pfree_n(page_index, order);
+    CONTAINER[id].usage -= count;
 }

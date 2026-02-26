@@ -1,4 +1,5 @@
 #include <lib/debug.h>
+#include <lib/x86.h>
 #include <pmm/MContainer/export.h>
 #include <vmm/MPTOp/export.h>
 #include <vmm/MPTIntro/export.h>

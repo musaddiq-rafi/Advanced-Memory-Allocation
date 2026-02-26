@@ -19,6 +19,10 @@ void set_ptbl_entry_identity(unsigned int pde_index, unsigned int pte_index,
 void rmv_ptbl_entry(unsigned int proc_index, unsigned int pde_index,
                     unsigned int pte_index);
 
+void set_pdir_entry_superpage(unsigned int proc_index, unsigned int pde_index,
+                              unsigned int page_index, unsigned int perm);
+unsigned int is_superpage(unsigned int proc_index, unsigned int pde_index);
+
 #endif  /* _KERN_ */
 
 #endif  /* !_KERN_VMM_MPTINTRO_H_ */

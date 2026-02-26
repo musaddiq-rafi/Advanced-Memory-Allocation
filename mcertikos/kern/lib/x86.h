@@ -16,6 +16,7 @@
 #define CR0_PG 0x80000000  /* Paging */
 
 /* CR4 */
+#define CR4_PSE        0x00000010  /* Page Size Extension */
 #define CR4_PGE        0x00000080  /* Page Global Enable */
 #define CR4_OSFXSR     0x00000200  /* SSE and FXSAVE/FXRSTOR enable */
 #define CR4_OSXMMEXCPT 0x00000400  /* Unmasked SSE FP exceptions */

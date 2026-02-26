@@ -132,3 +132,27 @@ void rmv_ptbl_entry(unsigned int proc_index, unsigned int pde_index,
     pte = (unsigned int *)pte_addr;
     *pte &= 0x00000000;
 }
+
+/**
+ * Set a PDE to map a 4 MB super-page directly.
+ * The PDE stores {page_index[31:22], PS=1, permissions}.
+ * page_index must be aligned to 1024 pages (22-bit physical alignment).
+ */
+void set_pdir_entry_superpage(unsigned int proc_index,
+                              unsigned int pde_index,
+                              unsigned int page_index,
+                              unsigned int perm)
+{
+    unsigned int value = (page_index << 12) | PTE_PS | perm;
+    PDirPool[proc_index][pde_index] = (unsigned int *)value;
+}
+
+/**
+ * Returns 1 if the PDE for the given process/pde_index is a super-page
+ * (has PTE_PS bit set), 0 otherwise.
+ */
+unsigned int is_superpage(unsigned int proc_index, unsigned int pde_index)
+{
+    unsigned int pde = (unsigned int)PDirPool[proc_index][pde_index];
+    return (pde & PTE_PS) ? 1 : 0;
+}

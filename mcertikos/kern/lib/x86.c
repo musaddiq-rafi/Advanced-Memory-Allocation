@@ -188,3 +188,8 @@ gcc_inline void outsw(int port, const void *addr, int cnt)
                       : "d" (port), "0" (addr), "1" (cnt)
                       : "cc");
 }
+
+gcc_inline void enable_pse(void)
+{
+    lcr4(rcr4() | CR4_PSE);
+}

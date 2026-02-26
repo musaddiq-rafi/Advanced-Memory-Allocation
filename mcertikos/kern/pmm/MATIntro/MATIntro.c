@@ -20,6 +20,16 @@ struct ATStruct {
      * >0: allocated
      */
     unsigned int allocated;
+    /**
+     * Buddy order (0..10). Only meaningful for block heads.
+     * Indicates this page is the start of a 2^order block.
+     */
+    unsigned int order;
+    /**
+     * Whether this page is the head (first page) of a buddy block.
+     * 1: head, 0: not head.
+     */
+    unsigned int is_head;
 };
 
 /**
@@ -79,4 +89,38 @@ unsigned int at_is_allocated(unsigned int page_index)
 void at_set_allocated(unsigned int page_index, unsigned int allocated)
 {
     AT[page_index].allocated = allocated;
+}
+
+/**
+ * The getter function for the buddy order of a page.
+ * Returns the buddy order stored for the given page index.
+ */
+unsigned int at_get_order(unsigned int page_index)
+{
+    return AT[page_index].order;
+}
+
+/**
+ * The setter function for the buddy order of a page.
+ */
+void at_set_order(unsigned int page_index, unsigned int order)
+{
+    AT[page_index].order = order;
+}
+
+/**
+ * The getter function for the head flag of a page.
+ * Returns 1 if the page is a block head, 0 otherwise.
+ */
+unsigned int at_is_head(unsigned int page_index)
+{
+    return AT[page_index].is_head;
+}
+
+/**
+ * The setter function for the head flag of a page.
+ */
+void at_set_head(unsigned int page_index, unsigned int head)
+{
+    AT[page_index].is_head = head;
 }

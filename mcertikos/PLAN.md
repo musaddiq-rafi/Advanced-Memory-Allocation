@@ -67,8 +67,9 @@ VMM (Virtual Memory Management)
 | `kern/dev/idt.S` | No change | `T_SYSCALL` handler already in IDT |
 | `user/include/syscall.h` | **Modify** | Declare `brk()` prototype |
 | `user/lib/fake_syscall.c` | **Modify** | Implement userspace `brk()` stub (int $T_SYSCALL) |
+| `kern/init/init.c` | **Modify** | Register new test suites (`test_MATIntro`, `test_MATOp`) so the `TEST` build runs them |
 
-The majority of the work is squarely in `kern/pmm` and `kern/vmm`. The changes outside those directories are thin glue (syscall dispatch, one CR4 helper, userspace stub).
+The majority of the work is squarely in `kern/pmm` and `kern/vmm`. The changes outside those directories are thin glue (syscall dispatch, one CR4 helper, userspace stub, test registration).
 
 ---
 
@@ -495,14 +496,16 @@ The work is divided into 7 phases. Each phase builds on the previous and is inde
 - Add `order`, `is_head` fields and getters/setters.
 - Update `export.h`.
 - Write unit tests.
-- **Files:** `kern/pmm/MATIntro/MATIntro.c`, `export.h`, `test.c`
+- Register in `init.c`: add `extern bool test_MATIntro(void);` and a runner block before the MContainer block.
+- **Files:** `kern/pmm/MATIntro/MATIntro.c`, `export.h`, `test.c`, `kern/init/init.c`
 
 ### Phase 2 — Buddy Allocator (`MATOp`)
 - Implement free-list data structures, `buddy_init`, `palloc_n`, `pfree_n`.
 - Keep `palloc`/`pfree` as wrappers.
 - Update `export.h`, `import.h`.
 - Write unit tests.
-- **Files:** `kern/pmm/MATOp/MATOp.c`, `export.h`, `import.h`, `test.c`
+- Register in `init.c`: add `extern bool test_MATOp(void);` and a runner block after MATIntro / before MContainer.
+- **Files:** `kern/pmm/MATOp/MATOp.c`, `export.h`, `import.h`, `test.c`, `kern/init/init.c`
 
 ### Phase 3 — Multi-Page Container (`MContainer`)
 - Add `container_alloc_n`, `container_free_n`.
@@ -537,6 +540,10 @@ The work is divided into 7 phases. Each phase builds on the previous and is inde
 - Add `SYS_BRK` to `kern/lib/x86.h`.
 - Add userspace `brk()` stub.
 - **Files:** `kern/lib/trap.c`, `kern/lib/x86.h`, `user/include/syscall.h`, `user/lib/fake_syscall.c`
+
+**Note on `init.c`:** Phases 3–7 do not require `init.c` changes because they extend test functions (`test_MContainer`, `test_MPTIntro`, `test_MPTKern`, `test_MPTNew`) that `init.c` already calls. After Phases 1 and 2, the full test order in `init.c` is:
+
+MATIntro → MATOp → MContainer → MPTIntro → MPTOp → MPTComm → MPTKern → MPTNew
 
 ---
 
@@ -657,10 +664,11 @@ The buddy allocator's free-list lookup is O(1) per order level, and we have at m
 | `kern/lib/x86.h` | Add `CR4_PSE`, `SYS_BRK`, `MAX_ORDER` |
 | `kern/lib/x86.c` | Add `enable_pse()` |
 | `kern/lib/trap.c` | Add `T_SYSCALL` dispatch + `SYS_BRK` handler |
+| `kern/init/init.c` | Add `test_MATIntro` and `test_MATOp` extern declarations + runner blocks |
 | `user/include/syscall.h` | Declare `brk()` |
 | `user/lib/fake_syscall.c` | Implement `brk()` stub |
 
-**Total: 15 files in `kern/pmm` + `kern/vmm` (primary), 5 files outside (thin glue).**
+**Total: 15 files in `kern/pmm` + `kern/vmm` (primary), 6 files outside (thin glue).** 
 
 ---
 

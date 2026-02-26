@@ -8,6 +8,10 @@ unsigned int map_page(unsigned int proc_index, unsigned int vaddr,
                       unsigned int page_index, unsigned int perm);
 unsigned int unmap_page(unsigned int proc_index, unsigned int vaddr);
 
+unsigned int map_superpage(unsigned int proc_index, unsigned int vaddr,
+                           unsigned int page_index, unsigned int perm);
+void unmap_superpage(unsigned int proc_index, unsigned int vaddr);
+
 #endif  /* _KERN_ */
 
 #endif  /* !_KERN_VMM_MPTKERN_H_ */

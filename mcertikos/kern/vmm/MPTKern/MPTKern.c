@@ -64,3 +64,24 @@ unsigned int unmap_page(unsigned int proc_index, unsigned int vadr)
   pte = get_ptbl_entry_by_va(proc_index, vadr);
   return pte;
 }
+
+/**
+ * Map a 4 MB super-page: vaddr must be 4 MB aligned, page_index must be
+ * 1024-page aligned.
+ */
+unsigned int map_superpage(unsigned int proc_index, unsigned int vaddr,
+                           unsigned int page_index, unsigned int perm)
+{
+    unsigned int pde_index = vaddr >> 22;
+    set_pdir_entry_superpage(proc_index, pde_index, page_index, perm);
+    return page_index;
+}
+
+/**
+ * Unmap a 4 MB super-page at the given 4 MB-aligned vaddr.
+ */
+void unmap_superpage(unsigned int proc_index, unsigned int vaddr)
+{
+    unsigned int pde_index = vaddr >> 22;
+    rmv_pdir_entry(proc_index, pde_index);
+}

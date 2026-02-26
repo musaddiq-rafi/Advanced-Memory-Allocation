@@ -1,6 +1,7 @@
 #include <lib/debug.h>
 #include <pmm/MContainer/export.h>
 #include <vmm/MPTOp/export.h>
+#include <vmm/MPTIntro/export.h>
 #include "export.h"
 
 int MPTKern_test1()
@@ -62,14 +63,89 @@ int MPTKern_test2()
  * the original value. O.w., it may make the future test scripts to fail even if you implement all
  * the functions correctly.
  */
-int MPTKern_test_own()
+/**
+ * Test map_superpage: sets PDE with PS bit and correct physical address.
+ */
+int MPTKern_test_map_superpage()
 {
-    // TODO (optional)
-    // dprintf("own test passed.\n");
+    unsigned int pde, page_index, pde_index;
+    unsigned int vaddr = 4096 * 1024 * 256;  /* 0x40000000, PDE index 256 */
+
+    page_index = 0x40000;  /* 1024-page aligned = 0x40000000 physical */
+
+    map_superpage(2, vaddr, page_index, PTE_P | PTE_W | PTE_U);
+
+    pde_index = vaddr >> 22;  /* = 256 */
+    pde = get_pdir_entry(2, pde_index);
+
+    /* PDE must have PTE_PS set */
+    if (!(pde & PTE_PS)) {
+        dprintf("test map_superpage failed: PTE_PS not set (pde=0x%x)\n", pde);
+        rmv_pdir_entry(2, pde_index);
+        return 1;
+    }
+
+    /* is_superpage must return 1 */
+    if (is_superpage(2, pde_index) != 1) {
+        dprintf("test map_superpage failed: is_superpage returned 0\n");
+        rmv_pdir_entry(2, pde_index);
+        return 1;
+    }
+
+    /* Physical address must be page_index << 12 */
+    if ((pde & 0xFFFFF000) != (page_index << 12)) {
+        dprintf("test map_superpage failed: addr 0x%x != 0x%x\n",
+                pde & 0xFFFFF000, page_index << 12);
+        rmv_pdir_entry(2, pde_index);
+        return 1;
+    }
+
+    rmv_pdir_entry(2, pde_index);
+    dprintf("test map_superpage passed.\n");
+    return 0;
+}
+
+/**
+ * Test unmap_superpage: clears the PDE entry.
+ */
+int MPTKern_test_unmap_superpage()
+{
+    unsigned int pde, pde_index;
+    unsigned int vaddr = 4096 * 1024 * 257;  /* PDE index 257 */
+    unsigned int page_index = 0x40400;  /* 1024-aligned */
+
+    map_superpage(2, vaddr, page_index, PTE_P | PTE_W | PTE_U);
+
+    pde_index = vaddr >> 22;  /* = 257 */
+
+    /* Verify it's mapped first */
+    pde = get_pdir_entry(2, pde_index);
+    if (pde == 0) {
+        dprintf("test unmap_superpage failed: PDE not set after map\n");
+        return 1;
+    }
+
+    /* Now unmap */
+    unmap_superpage(2, vaddr);
+
+    pde = get_pdir_entry(2, pde_index);
+    if (pde != 0) {
+        dprintf("test unmap_superpage failed: PDE not cleared (pde=0x%x)\n", pde);
+        return 1;
+    }
+
+    if (is_superpage(2, pde_index) != 0) {
+        dprintf("test unmap_superpage failed: is_superpage still 1 after unmap\n");
+        return 1;
+    }
+
+    dprintf("test unmap_superpage passed.\n");
     return 0;
 }
 
 int test_MPTKern()
 {
-    return MPTKern_test1() + MPTKern_test2() + MPTKern_test_own();
+    return MPTKern_test1() + MPTKern_test2()
+         + MPTKern_test_map_superpage()
+         + MPTKern_test_unmap_superpage();
 }

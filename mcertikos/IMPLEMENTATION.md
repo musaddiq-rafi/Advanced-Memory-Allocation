@@ -398,3 +398,70 @@ The `TEST` build uses `pdir_init_kern` (not `paging_init`), so `enable_pse()` is
 - `set_pdir_entry` is unchanged — it still sets P|W|U without PS.
 - The two new MPTIntro functions are purely additive; no existing function signatures change.
 - `paging_init` inserts one extra call; the order `pdir_init_kern → enable_pse → set_pdir_base → enable_paging` is safe because PSE can be enabled at any time before (or after) paging is active.
+
+---
+
+## Phase 5 — Super-Page Map/Unmap (`MPTKern`)
+
+### Goal
+
+Add high-level `map_superpage` and `unmap_superpage` functions to the MPTKern layer, providing a clean interface for mapping/unmapping 4 MB super-pages that parallels the existing `map_page`/`unmap_page` pair.
+
+### Changes
+
+#### 1. `kern/vmm/MPTKern/MPTKern.c`
+
+Added two functions after `unmap_page`:
+
+| Function | Signature | Description |
+|---|---|---|
+| `map_superpage` | `unsigned int map_superpage(unsigned int proc_index, unsigned int vaddr, unsigned int page_index, unsigned int perm)` | Computes `pde_index = vaddr >> 22`, calls `set_pdir_entry_superpage` from Phase 4, returns `page_index`. Requires `vaddr` to be 4 MB-aligned and `page_index` to be 1024-page-aligned. |
+| `unmap_superpage` | `void unmap_superpage(unsigned int proc_index, unsigned int vaddr)` | Computes `pde_index = vaddr >> 22`, calls `rmv_pdir_entry` to clear the PDE. No page table to worry about — super-pages bypass the second-level table. |
+
+These are intentionally thin wrappers. The value they add over calling MPTIntro directly is:
+- Taking a virtual address instead of a PDE index (consistent with `map_page`/`unmap_page`).
+- Providing a clean export for the MPTNew layer (Phase 6) to use without reaching down two layers.
+
+#### 2. `kern/vmm/MPTKern/export.h`
+
+Added two new function prototypes:
+
+```c
+unsigned int map_superpage(unsigned int proc_index, unsigned int vaddr,
+                           unsigned int page_index, unsigned int perm);
+void unmap_superpage(unsigned int proc_index, unsigned int vaddr);
+```
+
+#### 3. `kern/vmm/MPTKern/import.h`
+
+Added imports for the Phase 4 MPTIntro functions needed by the new code:
+
+```c
+void set_pdir_entry_superpage(unsigned int proc_index, unsigned int pde_index,
+                              unsigned int page_index, unsigned int perm);
+unsigned int is_superpage(unsigned int proc_index, unsigned int pde_index);
+void rmv_pdir_entry(unsigned int proc_index, unsigned int pde_index);
+unsigned int get_pdir_entry(unsigned int proc_index, unsigned int pde_index);
+```
+
+`rmv_pdir_entry` and `get_pdir_entry` are existing MPTIntro functions that weren't previously imported at this layer. They're needed by `unmap_superpage` and by the tests.
+
+#### 4. `kern/vmm/MPTKern/test.c`
+
+Added `#include <vmm/MPTIntro/export.h>` for direct access to `is_superpage`, `get_pdir_entry`, and `rmv_pdir_entry` in tests. Replaced the empty `MPTKern_test_own()` with two tests:
+
+| Test | What it verifies |
+|---|---|
+| `MPTKern_test_map_superpage` | `map_superpage(2, 0x40000000, 0x40000, P\|W\|U)` produces a PDE with `PTE_PS` set, `is_superpage` returns 1, and the physical address bits match `page_index << 12`. Uses proc 2, PDE 256. |
+| `MPTKern_test_unmap_superpage` | After mapping, `unmap_superpage` clears the PDE to 0 and `is_superpage` returns 0. Uses proc 2, PDE 257. |
+
+Both tests clean up via `rmv_pdir_entry` on failure paths.
+
+The aggregator is now: `MPTKern_test1() + MPTKern_test2() + MPTKern_test_map_superpage() + MPTKern_test_unmap_superpage()`.
+
+### Backward Compatibility
+
+- `map_page` and `unmap_page` are completely unchanged.
+- `pdir_init_kern` is unchanged.
+- The two new functions are purely additive; no existing signatures or behavior are affected.
+- Existing tests (`MPTKern_test1`, `MPTKern_test2`) continue to pass.

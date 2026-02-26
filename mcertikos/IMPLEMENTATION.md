@@ -299,3 +299,102 @@ This phase completes the critical connection: `container_init → pmem_init → 
 - `container_alloc` and `container_free` are unchanged — they still call `palloc()`/`pfree()` which are now buddy wrappers. No signature or behavioral change for callers.
 - Existing tests (`MContainer_test1`, `MContainer_test2`) continue to pass.
 - The init chain is strictly extended (one new call inserted), not restructured.
+
+---
+
+## Phase 4 — PSE Infrastructure (`MPTIntro` + `x86`)
+
+### Goal
+
+Add x86 Page Size Extension (PSE) support so the system can map 4 MB super-pages via a single PDE entry with the `PTE_PS` bit, and provide the MPTIntro-level primitives for setting and querying super-page PDEs.
+
+### Changes
+
+#### 1. `kern/lib/x86.h`
+
+Added the `CR4_PSE` constant to the CR4 section:
+
+```c
+#define CR4_PSE        0x00000010  /* Page Size Extension */
+```
+
+This is the bit that must be set in CR4 to enable 4 MB page support on x86.
+
+#### 2. `kern/lib/x86.c`
+
+Added `enable_pse()` at the end of the file:
+
+```c
+gcc_inline void enable_pse(void)
+{
+    lcr4(rcr4() | CR4_PSE);
+}
+```
+
+This ORs `CR4_PSE` into CR4, enabling the processor to interpret the `PTE_PS` bit in page directory entries as "this PDE maps a 4 MB page directly" rather than pointing to a page table.
+
+#### 3. `kern/vmm/MPTIntro/MPTIntro.c`
+
+Added two new functions after `rmv_ptbl_entry`:
+
+| Function | Signature | Description |
+|---|---|---|
+| `set_pdir_entry_superpage` | `void set_pdir_entry_superpage(unsigned int proc_index, unsigned int pde_index, unsigned int page_index, unsigned int perm)` | Sets a PDE to map a 4 MB super-page. Computes `(page_index << 12) | PTE_PS | perm` and stores it in `PDirPool[proc_index][pde_index]`. The `page_index` must be 1024-page aligned (physically 4 MB aligned). |
+| `is_superpage` | `unsigned int is_superpage(unsigned int proc_index, unsigned int pde_index)` | Returns 1 if the PDE has `PTE_PS` set, 0 otherwise. Used by higher layers to distinguish super-page PDEs from regular page-table-pointer PDEs. |
+
+These follow the same casting pattern as the existing `set_pdir_entry` — storing an integer value into the `unsigned int *` typed PDirPool array.
+
+#### 4. `kern/vmm/MPTIntro/export.h`
+
+Added two new function prototypes:
+
+```c
+void set_pdir_entry_superpage(unsigned int proc_index, unsigned int pde_index,
+                              unsigned int page_index, unsigned int perm);
+unsigned int is_superpage(unsigned int proc_index, unsigned int pde_index);
+```
+
+#### 5. `kern/vmm/MPTInit/MPTInit.c`
+
+Added `enable_pse()` call between `pdir_init_kern` and `set_pdir_base`:
+
+```c
+void paging_init(unsigned int mbi_addr)
+{
+    pdir_init_kern(mbi_addr);
+    enable_pse();        // NEW: enable 4 MB page support
+    set_pdir_base(0);
+    enable_paging();
+}
+```
+
+PSE must be enabled before paging is turned on (or at least before any super-page PDE is used). Placing it here ensures it's active for all subsequent operations.
+
+#### 6. `kern/vmm/MPTInit/import.h`
+
+Added `enable_pse()` to the import declarations so `MPTInit.c` can call it.
+
+#### 7. `kern/vmm/MPTIntro/test.c`
+
+Replaced the empty `MPTIntro_test_own()` with three new tests:
+
+| Test | What it verifies |
+|---|---|
+| `MPTIntro_test_superpage_pde` | `set_pdir_entry_superpage` sets the `PTE_PS` bit in the PDE; `is_superpage` returns 1. Uses proc 2, PDE 256 for isolation. |
+| `MPTIntro_test_superpage_addr` | The PDE encodes the correct physical address (`page_index << 12`) in bits 31:12, and the correct permission bits (`PTE_PS | PTE_P | PTE_W | PTE_U = 0x087`) in bits 11:0. |
+| `MPTIntro_test_not_superpage` | A regular `set_pdir_entry` does NOT set `PTE_PS`; `is_superpage` returns 0. Confirms the two PDE-setting functions produce distinguishable results. |
+
+All tests clean up via `rmv_pdir_entry` before returning.
+
+The aggregator is now: `MPTIntro_test1() + MPTIntro_test2() + MPTIntro_test_superpage_pde() + MPTIntro_test_superpage_addr() + MPTIntro_test_not_superpage()`.
+
+### Note on TEST build
+
+The `TEST` build uses `pdir_init_kern` (not `paging_init`), so `enable_pse()` is not called during test runs. This is fine — the tests only manipulate in-memory `PDirPool` entries and verify bit patterns; they don't depend on the CPU actually interpreting `PTE_PS`. When the full `paging_init` path runs (non-TEST), PSE is enabled before paging starts.
+
+### Backward Compatibility
+
+- `PTE_PS` (0x080) already existed in `x86.h` — no existing code is affected.
+- `set_pdir_entry` is unchanged — it still sets P|W|U without PS.
+- The two new MPTIntro functions are purely additive; no existing function signatures change.
+- `paging_init` inserts one extra call; the order `pdir_init_kern → enable_pse → set_pdir_base → enable_paging` is safe because PSE can be enabled at any time before (or after) paging is active.

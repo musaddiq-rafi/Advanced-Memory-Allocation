@@ -557,13 +557,8 @@ All test functions follow the existing convention: return 0 on pass, non-zero on
 
 | Test | What it verifies |
 |---|---|
-| `MATOp_test_palloc_n_order0` | `palloc_n(0)` returns a valid, allocated, normal page in user range; `pfree_n` clears it |
-| `MATOp_test_palloc_n_order1` | `palloc_n(1)` returns a 2-page-aligned block; both pages are consecutive and allocated |
-| `MATOp_test_palloc_n_large` | `palloc_n(10)` returns a 1024-page-aligned block (4 MB); verify alignment and consecutiveness |
-| `MATOp_test_split` | Allocate order-1, free it, allocate two order-0s — they should be the two halves |
-| `MATOp_test_coalesce` | Allocate two order-0 buddies, free both — they coalesce into order-1 (verify by allocating order-1 and getting the same block back) |
-| `MATOp_test_exhaust` | Allocate until failure; verify `palloc_n` returns 0; free all; verify re-allocation succeeds |
-| `MATOp_test_alignment` | For each order 0..10, verify returned page_index is aligned to $2^{order}$ |
+| `MATOp_test_palloc_n_orders` | `palloc_n(0)`, `palloc_n(1)`, `palloc_n(10)` each return correctly aligned, consecutive, allocated pages in user range; `pfree_n` clears them |
+| `MATOp_test_split_coalesce` | Allocate order-1, free it, allocate two order-0s (should be the two halves); free both and verify they coalesce back into order-1 |
 | `MATOp_test_backward_compat` | `palloc()` and `pfree()` still work as before (order-0 wrapper) |
 
 #### `MContainer/test.c` — Multi-Page Quota Tests
@@ -596,23 +591,10 @@ All test functions follow the existing convention: return 0 on pass, non-zero on
 
 | Test | What it verifies |
 |---|---|
-| `MPTNew_test_alloc_pages_order0` | `alloc_pages(proc, vaddr, perm, 0)` same as `alloc_page` — backward compat |
-| `MPTNew_test_alloc_pages_order2` | `alloc_pages(proc, vaddr, perm, 2)` maps 4 consecutive VA pages to 4 consecutive PA pages |
-| `MPTNew_test_alloc_pages_super` | `alloc_pages(proc, 4MB_aligned_va, perm, 10)` produces a super-page PDE |
-| `MPTNew_test_free_pages` | After `alloc_pages`, `free_pages` unmaps all pages and returns quota |
-| `MPTNew_test_free_superpage` | After allocating a super-page, `free_pages(proc, va, 10)` clears the PDE |
-| `MPTNew_test_alloc_fail_rollback` | When allocation fails mid-way, all previously mapped pages are rolled back |
-| `MPTNew_test_brk_grow` | `sys_brk(proc, VM_USERLO + 8*PAGESIZE)` maps 8 pages; break advances |
-| `MPTNew_test_brk_shrink` | `sys_brk(proc, VM_USERLO + 4*PAGESIZE)` after growing to 8 pages; 4 pages freed |
-| `MPTNew_test_brk_query` | `sys_brk(proc, 0)` returns current break |
-| `MPTNew_test_brk_align` | Non-page-aligned brk request is rounded up |
-| `MPTNew_test_brk_range` | `sys_brk` rejects addresses outside `[VM_USERLO, VM_USERHI]` |
-| `MPTNew_test_brk_superpage` | Growing break by 4 MB from a 4 MB-aligned start produces a super-page |
-| `MPTNew_test_brk_fragment` | Grow, shrink, grow pattern; verify pages are properly coalesced and re-usable |
-| `MPTNew_test_brk_alloc_free_reuse` | Split quota, brk up, verify PTEs, brk down, verify pages freed, brk up again — verify re-use of freed physical memory |
-| `MPTNew_test_superpage_lifecycle` | Allocate 4 MB super-page via brk, verify PDE has PS bit, free via brk, verify PDE cleared |
-| `MPTNew_test_fragmentation_coalesce` | Allocate many small blocks, free every other one, then allocate a large block — verify buddy coalescing handles it |
-| `MPTNew_test_multi_process_brk` | Two child processes each call sys_brk; verify physical pages don't overlap and quota is respected |
+| `MPTNew_test_alloc_free_pages` | `alloc_pages(proc, vaddr, perm, 2)` maps 4 consecutive VA→PA pages; `free_pages` unmaps them and returns quota. Also verify order-10 super-page path (PDE has PS bit, clears on free). |
+| `MPTNew_test_brk_grow_shrink` | `sys_brk` grow to 8 pages (verify PTEs), shrink to 4 (verify freed), query returns current break, rejects out-of-range addresses |
+| `MPTNew_test_brk_superpage` | Growing break by 4 MB from a 4 MB-aligned start produces a super-page PDE; shrinking frees it and clears the PDE |
+| `MPTNew_test_brk_fragment_reuse` | Grow, shrink, grow pattern across two child processes; verify buddy coalescing allows re-use of freed memory and that physical pages don't overlap between processes |
 
 ---
 

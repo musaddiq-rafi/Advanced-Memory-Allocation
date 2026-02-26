@@ -257,3 +257,10 @@ void enable_paging(void)
     cr0 &= ~(CR0_EM | CR0_TS);
     lcr0(cr0);
 }
+
+void enable_pse(void)
+{
+    uint32_t cr4 = rcr4();
+    cr4 |= CR4_PSE;
+    lcr4(cr4);
+}

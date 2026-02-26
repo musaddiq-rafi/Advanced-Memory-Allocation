@@ -220,3 +220,82 @@ The full test order is now: **MATIntro → MATOp → MContainer → MPTIntro →
 ### Note
 
 `buddy_init()` is exported but **not yet called** by anyone — it will be integrated into the init chain in Phase 3 when `container_init()` calls it after `pmem_init()`. Until then, the free lists are empty and `palloc_n`/`pfree_n` would return 0. The backward-compatible `palloc`/`pfree` wrappers go through the buddy system too, so **the MATOp tests will only pass once Phase 3 wires `buddy_init()` into `container_init()`**, or if it is called separately in the test harness.
+
+---
+
+## Phase 3 — Multi-Page Container (`MContainer`)
+
+### Goal
+
+Extend the per-process memory container with multi-page allocation/free functions that use the buddy allocator, and wire `buddy_init()` into the initialization chain so the buddy system is active at boot.
+
+### Changes
+
+#### 1. `kern/pmm/MContainer/MContainer.c`
+
+**Init chain update** — Added `buddy_init()` call in `container_init()` immediately after `pmem_init()`:
+
+```c
+pmem_init(mbi_addr);
+buddy_init();  // Build buddy free lists from the AT after pmem_init
+```
+
+This is the critical wiring that makes the buddy allocator live. `pmem_init` populates the AT permission table; `buddy_init` then scans it to build free lists. The quota-counting loop that follows is unaffected because `buddy_init` only sets `order`/`is_head` metadata and builds `free_nodes[]` — it does not modify the `allocated` flags that the loop inspects.
+
+**New functions** — Added two functions at the end of the file:
+
+| Function | Signature | Description |
+|---|---|---|
+| `container_alloc_n` | `unsigned int container_alloc_n(unsigned int id, unsigned int order)` | Checks quota (`container_can_consume(id, 2^order)`), calls `palloc_n(order)`, increments `usage` by `2^order`. Returns starting page index or 0 on failure. |
+| `container_free_n` | `void container_free_n(unsigned int id, unsigned int page_index, unsigned int order)` | Calls `pfree_n(page_index, order)`, decrements `usage` by `2^order`. |
+
+Unlike the existing `container_alloc` (which doesn't check quota — the caller is expected to), `container_alloc_n` includes a quota check directly. This is important because multi-page allocations can consume many pages at once and the caller may not know the exact count.
+
+#### 2. `kern/pmm/MContainer/export.h`
+
+Added two new function prototypes:
+
+```c
+unsigned int container_alloc_n(unsigned int id, unsigned int order);
+void container_free_n(unsigned int id, unsigned int page_index, unsigned int order);
+```
+
+These will be imported by `MPTNew` in Phase 6.
+
+#### 3. `kern/pmm/MContainer/import.h`
+
+Added imports for the three buddy allocator functions from MATOp:
+
+```c
+unsigned int palloc_n(unsigned int order);
+void pfree_n(unsigned int page_index, unsigned int order);
+void buddy_init(void);
+```
+
+#### 4. `kern/pmm/MContainer/test.c`
+
+Replaced the empty `MContainer_test_own()` stub with four new tests:
+
+| Test | What it verifies |
+|---|---|
+| `MContainer_test_alloc_n` | Creates a child with quota 100; `container_alloc_n(chid, 3)` returns a valid page index and deducts 8 from usage; `container_free_n` restores usage to 0. |
+| `MContainer_test_free_n` | Creates a child with quota 64; allocates order-2 (4 pages), verifies usage += 4; frees and verifies usage restored. |
+| `MContainer_test_quota_limit` | Creates a child with quota 4; order-3 (8 pages) must fail and leave usage unchanged; order-2 (4 pages) must succeed. |
+| `MContainer_test_backward_compat` | Creates a child with quota 50; `container_alloc`/`container_free` still work as single-page operations (usage goes 0 → 1 → 0). |
+
+Each test creates its own child process via `container_split` for isolation. All allocations are freed before returning.
+
+The aggregator is now: `MContainer_test1() + MContainer_test2() + MContainer_test_alloc_n() + MContainer_test_free_n() + MContainer_test_quota_limit() + MContainer_test_backward_compat()`.
+
+### Key Integration Point
+
+This phase completes the critical connection: `container_init → pmem_init → buddy_init`. With this in place:
+- All MATOp tests (Phase 2) now pass because `buddy_init()` builds the free lists before any allocation is attempted.
+- `palloc()` and `pfree()` now go through the buddy system rather than the old circular scan.
+- The entire PMM stack is functional: MATIntro (metadata) → MATInit (AT init) → MATOp (buddy allocator) → MContainer (quota-aware wrappers).
+
+### Backward Compatibility
+
+- `container_alloc` and `container_free` are unchanged — they still call `palloc()`/`pfree()` which are now buddy wrappers. No signature or behavioral change for callers.
+- Existing tests (`MContainer_test1`, `MContainer_test2`) continue to pass.
+- The init chain is strictly extended (one new call inserted), not restructured.

@@ -277,11 +277,11 @@
 00108680 T MPTNew_test1
 001087d0 T MPTNew_test_alloc_free_pages
 00108910 T MPTNew_test_brk_grow_shrink
-00108b20 T MPTNew_test_own
-00108b40 T test_MPTNew
-00108b70 T __udivdi3
-00108ca0 T __umoddi3
-00108de6 T etext
+00108ac0 T MPTNew_test_own
+00108ae0 T test_MPTNew
+00108b10 T __udivdi3
+00108c40 T __umoddi3
+00108d86 T etext
 0010fff4 d _GLOBAL_OFFSET_TABLE_
 00110000 d shiftcode
 00110100 d togglecode

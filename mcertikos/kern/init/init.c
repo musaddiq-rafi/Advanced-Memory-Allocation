@@ -16,7 +16,6 @@ extern bool test_MPTOp(void);
 extern bool test_MPTComm(void);
 extern bool test_MPTKern(void);
 extern bool test_MPTNew(void);
-extern void brk_init(void);
 #endif
 
 static void kern_main(void)
@@ -88,7 +87,6 @@ void kern_init(uintptr_t mbi_addr)
 {
 #ifdef TEST
     pdir_init_kern(mbi_addr);
-    brk_init();   /* initialise proc_brk[] for TEST build (paging_init not called) */
 #else
     paging_init(mbi_addr);
 #endif

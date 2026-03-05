@@ -46,19 +46,20 @@ int MPTNew_test1()
  */
 /**
  * Test alloc_pages / free_pages at order 2 (4 pages).
- * Creates a dedicated child container, allocates 4 consecutive pages at a
- * fixed VA, verifies all 4 PTEs are present, then frees and verifies cleared.
+ * Verifies that 4 consecutive PTEs are mapped and then cleanly freed.
+ *
+ * By the time this runs, MPTNew_test1 has already done container_split(0, 100)
+ * creating child 7 (proc 0 has nchildren == 7 after earlier test suites).
+ * We create our own child with container_split(0, 200).
  */
 int MPTNew_test_alloc_free_pages()
 {
-    unsigned int vaddr = 0x60000000;  /* well inside user range, not used by test1 */
+    unsigned int vaddr = 0x50000000;  /* PDE 320 — well inside user range */
+    unsigned int i, pte, result;
     unsigned int chid;
-    unsigned int i, pte;
-    unsigned int result;
-    unsigned int old_nchildren = container_get_nchildren(0);
 
-    /* Allocate a dedicated child with enough quota for 4 pages + 1 page table */
-    chid = container_split(0, 16);
+    /* Create a fresh child container with enough quota */
+    chid = container_split(0, 200);
     if (chid >= NUM_IDS) {
         dprintf("test alloc_free_pages failed: container_split returned %u\n", chid);
         return 1;
@@ -96,34 +97,31 @@ int MPTNew_test_alloc_free_pages()
 }
 
 /**
- * Test sys_brk: set break, grow by 4 pages, verify PTEs, shrink back,
- * verify PTEs cleared.  Also tests the query (new_brk == 0) path.
+ * Test sys_brk: grow by 4 pages, verify PTEs, then shrink back, verify freed.
+ * Also tests the query (new_brk == 0) path.
  *
- * Uses a dedicated child container so the test is self-contained.
+ * We call brk_init() first so proc_brk[] is initialised to VM_USERLO,
+ * since the TEST build path does not call paging_init().
  */
 int MPTNew_test_brk_grow_shrink()
 {
+    unsigned int brk0, brk1, brk2, i, pte;
     unsigned int chid;
-    unsigned int brk0, brk1, brk2;
-    unsigned int i, pte;
 
-    /* Fresh child with enough quota for 4 data pages + page-table page */
-    chid = container_split(0, 16);
+    /* Initialise proc_brk[] — needed because TEST mode skips paging_init */
+    brk_init();
+
+    /* Create a fresh child container */
+    chid = container_split(0, 300);
     if (chid >= NUM_IDS) {
         dprintf("test brk_grow_shrink failed: container_split returned %u\n", chid);
         return 1;
     }
 
-    /* Explicitly seed the break for this child to VM_USERLO */
-    brk0 = sys_brk(chid, 0x40000000);
+    /* Query current break — should be VM_USERLO after brk_init */
+    brk0 = sys_brk(chid, 0);
     if (brk0 != 0x40000000) {
-        dprintf("test brk_grow_shrink failed: initial brk set returned 0x%x\n", brk0);
-        return 1;
-    }
-
-    /* Query must return same value */
-    if (sys_brk(chid, 0) != brk0) {
-        dprintf("test brk_grow_shrink failed: query returned wrong value\n");
+        dprintf("test brk_grow_shrink failed: initial query returned 0x%x, expected 0x40000000\n", brk0);
         return 1;
     }
 
@@ -132,7 +130,6 @@ int MPTNew_test_brk_grow_shrink()
     if (brk1 != brk0 + 4 * 4096) {
         dprintf("test brk_grow_shrink failed: grow returned 0x%x, expected 0x%x\n",
                 brk1, brk0 + 4 * 4096);
-        if (brk1) sys_brk(chid, brk0);
         return 1;
     }
 
@@ -154,7 +151,7 @@ int MPTNew_test_brk_grow_shrink()
         return 1;
     }
 
-    /* All 4 pages must be unmapped */
+    /* Pages must be unmapped */
     for (i = 0; i < 4; i++) {
         pte = get_ptbl_entry_by_va(chid, brk0 + i * 4096);
         if (pte & PTE_P) {

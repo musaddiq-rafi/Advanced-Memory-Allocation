@@ -60,11 +60,38 @@ void checkpoint()
     KERN_INFO("check point\n");
 }
 
+/**
+ * syscall_handler — dispatch software interrupts (int $T_SYSCALL).
+ *
+ * Calling convention (mirrors Linux i386 fast-syscall):
+ *   eax = syscall number
+ *   ebx = first argument
+ * Return value is placed back in eax.
+ */
+static void syscall_handler(tf_t *tf)
+{
+    unsigned int syscall_num = tf->regs.eax;
+    switch (syscall_num) {
+        case SYS_BRK: {
+            unsigned int new_brk = tf->regs.ebx;
+            tf->regs.eax = sys_brk(CID, new_brk);
+            break;
+        }
+        default:
+            tf->regs.eax = (unsigned int)-1;
+            KERN_DEBUG("unknown syscall: %d\n", syscall_num);
+            break;
+    }
+}
+
 void trap(tf_t *tf)
 {
     if (tf->trapno == T_PGFLT) {
         set_pdir_base(0);
         pgflt_handler(tf);
+    } else if (tf->trapno == T_SYSCALL) {
+        set_pdir_base(0);
+        syscall_handler(tf);
     } else {
         KERN_DEBUG("unhandled trap: %d\n", tf->trapno);
         trap_dump(tf);

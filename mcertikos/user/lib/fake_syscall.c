@@ -35,3 +35,30 @@ void sys_puts(const char *s, unsigned int len)
     output[rlen] = '\0';
     kprint("%s", s);
 }
+
+/* Phase 7 — brk() syscall stub.
+ *
+ * Calling convention:
+ *   eax = SYS_BRK (1)
+ *   ebx = new_brk (0 = query current break)
+ * Return value (new break, or 0 on failure) is left in eax.
+ */
+#define SYS_BRK    1
+#define T_SYSCALL  48
+
+void *brk(void *addr)
+{
+    unsigned int result;
+    __asm__ __volatile__ (
+        "movl %1, %%eax\n"
+        "movl %2, %%ebx\n"
+        "int  %3\n"
+        "movl %%eax, %0\n"
+        : "=r" (result)
+        : "i" (SYS_BRK),
+          "r" ((unsigned int)(addr)),
+          "i" (T_SYSCALL)
+        : "eax", "ebx"
+    );
+    return (void *)result;
+}

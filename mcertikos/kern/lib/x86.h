@@ -48,6 +48,9 @@
 #define MagicNumber  1048577
 #define MAX_CHILDREN 3
 
+/* system call numbers */
+#define SYS_BRK      1
+
 static inline uint32_t __attribute__ ((always_inline)) read_ebp(void)
 {
     uint32_t ebp;

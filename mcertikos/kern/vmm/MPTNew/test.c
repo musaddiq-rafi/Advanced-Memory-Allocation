@@ -1,6 +1,8 @@
 #include <lib/debug.h>
+#include <lib/x86.h>
 #include <pmm/MContainer/export.h>
 #include <vmm/MPTOp/export.h>
+#include <vmm/MPTIntro/export.h>
 #include <vmm/MPTNew/export.h>
 #include "export.h"
 
@@ -42,11 +44,129 @@ int MPTNew_test1()
  * the original value. O.w., it may make the future test scripts to fail even if you implement all
  * the functions correctly.
  */
+/**
+ * Test alloc_pages / free_pages at order 2 (4 pages).
+ * Verifies that 4 consecutive PTEs are mapped and then cleanly freed.
+ *
+ * By the time this runs, MPTNew_test1 has already done container_split(0, 100)
+ * creating child 7 (proc 0 has nchildren == 7 after earlier test suites).
+ * We create our own child with container_split(0, 200).
+ */
+int MPTNew_test_alloc_free_pages()
+{
+    unsigned int vaddr = 0x50000000;  /* PDE 320 — well inside user range */
+    unsigned int i, pte, result;
+    unsigned int chid;
+
+    /* Create a fresh child container with enough quota */
+    chid = container_split(0, 200);
+    if (chid >= NUM_IDS) {
+        dprintf("test alloc_free_pages failed: container_split returned %u\n", chid);
+        return 1;
+    }
+
+    result = alloc_pages(chid, vaddr, PTE_P | PTE_W | PTE_U, 2);
+    if (result == MagicNumber) {
+        dprintf("test alloc_free_pages failed: alloc_pages order-2 returned MagicNumber\n");
+        return 1;
+    }
+
+    /* All 4 PTEs must be present */
+    for (i = 0; i < 4; i++) {
+        pte = get_ptbl_entry_by_va(chid, vaddr + i * 4096);
+        if (!(pte & PTE_P)) {
+            dprintf("test alloc_free_pages failed: page %u not mapped (pte=0x%x)\n", i, pte);
+            free_pages(chid, vaddr, 2);
+            return 1;
+        }
+    }
+
+    free_pages(chid, vaddr, 2);
+
+    /* After freeing, PTEs must be cleared */
+    for (i = 0; i < 4; i++) {
+        pte = get_ptbl_entry_by_va(chid, vaddr + i * 4096);
+        if (pte & PTE_P) {
+            dprintf("test alloc_free_pages failed: page %u still mapped after free\n", i);
+            return 1;
+        }
+    }
+
+    dprintf("test alloc_free_pages passed.\n");
+    return 0;
+}
+
+/**
+ * Test sys_brk: grow by 4 pages, verify PTEs, then shrink back, verify freed.
+ * Also tests the query (new_brk == 0) path.
+ *
+ * We call brk_init() first so proc_brk[] is initialised to VM_USERLO,
+ * since the TEST build path does not call paging_init().
+ */
+int MPTNew_test_brk_grow_shrink()
+{
+    unsigned int brk0, brk1, brk2, i, pte;
+    unsigned int chid;
+
+    /* Initialise proc_brk[] — needed because TEST mode skips paging_init */
+    brk_init();
+
+    /* Create a fresh child container */
+    chid = container_split(0, 300);
+    if (chid >= NUM_IDS) {
+        dprintf("test brk_grow_shrink failed: container_split returned %u\n", chid);
+        return 1;
+    }
+
+    /* Query current break — should be VM_USERLO after brk_init */
+    brk0 = sys_brk(chid, 0);
+    if (brk0 != 0x40000000) {
+        dprintf("test brk_grow_shrink failed: initial query returned 0x%x, expected 0x40000000\n", brk0);
+        return 1;
+    }
+
+    /* Grow by 4 pages */
+    brk1 = sys_brk(chid, brk0 + 4 * 4096);
+    if (brk1 != brk0 + 4 * 4096) {
+        dprintf("test brk_grow_shrink failed: grow returned 0x%x, expected 0x%x\n",
+                brk1, brk0 + 4 * 4096);
+        return 1;
+    }
+
+    /* All 4 pages must be mapped */
+    for (i = 0; i < 4; i++) {
+        pte = get_ptbl_entry_by_va(chid, brk0 + i * 4096);
+        if (!(pte & PTE_P)) {
+            dprintf("test brk_grow_shrink failed: page %u not mapped after grow\n", i);
+            sys_brk(chid, brk0);
+            return 1;
+        }
+    }
+
+    /* Shrink back to brk0 */
+    brk2 = sys_brk(chid, brk0);
+    if (brk2 != brk0) {
+        dprintf("test brk_grow_shrink failed: shrink returned 0x%x, expected 0x%x\n",
+                brk2, brk0);
+        return 1;
+    }
+
+    /* Pages must be unmapped */
+    for (i = 0; i < 4; i++) {
+        pte = get_ptbl_entry_by_va(chid, brk0 + i * 4096);
+        if (pte & PTE_P) {
+            dprintf("test brk_grow_shrink failed: page %u still mapped after shrink\n", i);
+            return 1;
+        }
+    }
+
+    dprintf("test brk_grow_shrink passed.\n");
+    return 0;
+}
+
 int MPTNew_test_own()
 {
-    // TODO (optional)
-    // dprintf("own test passed.\n");
-    return 0;
+    return MPTNew_test_alloc_free_pages() + MPTNew_test_brk_grow_shrink();
 }
 
 int test_MPTNew()

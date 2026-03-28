@@ -58,6 +58,8 @@ int MPTNew_test_alloc_free_pages()
     unsigned int i, pte, result;
     unsigned int chid;
 
+    dprintf("test alloc_free_pages: begin (vaddr=0x%x order=2)\n", vaddr);
+
     /* Create a fresh child container with enough quota */
     chid = container_split(0, 200);
     if (chid >= NUM_IDS) {
@@ -65,15 +67,20 @@ int MPTNew_test_alloc_free_pages()
         return 1;
     }
 
+    dprintf("test alloc_free_pages: chid=%u\n", chid);
+
     result = alloc_pages(chid, vaddr, PTE_P | PTE_W | PTE_U, 2);
     if (result == MagicNumber) {
         dprintf("test alloc_free_pages failed: alloc_pages order-2 returned MagicNumber\n");
         return 1;
     }
 
+    dprintf("test alloc_free_pages: alloc_pages succeeded (result=%u)\n", result);
+
     /* All 4 PTEs must be present */
     for (i = 0; i < 4; i++) {
         pte = get_ptbl_entry_by_va(chid, vaddr + i * 4096);
+        dprintf("test alloc_free_pages: pte[%u]=0x%x\n", i, pte);
         if (!(pte & PTE_P)) {
             dprintf("test alloc_free_pages failed: page %u not mapped (pte=0x%x)\n", i, pte);
             free_pages(chid, vaddr, 2);
@@ -83,9 +90,12 @@ int MPTNew_test_alloc_free_pages()
 
     free_pages(chid, vaddr, 2);
 
+    dprintf("test alloc_free_pages: freed range, re-checking PTEs\n");
+
     /* After freeing, PTEs must be cleared */
     for (i = 0; i < 4; i++) {
         pte = get_ptbl_entry_by_va(chid, vaddr + i * 4096);
+        dprintf("test alloc_free_pages: after free pte[%u]=0x%x\n", i, pte);
         if (pte & PTE_P) {
             dprintf("test alloc_free_pages failed: page %u still mapped after free\n", i);
             return 1;
@@ -108,8 +118,12 @@ int MPTNew_test_brk_grow_shrink()
     unsigned int brk0, brk1, brk2, i, pte;
     unsigned int chid;
 
+    dprintf("test brk_grow_shrink: begin\n");
+
     /* Initialise proc_brk[] — needed because TEST mode skips paging_init */
     brk_init();
+
+    dprintf("test brk_grow_shrink: brk_init() done\n");
 
     /* Create a fresh child container */
     chid = container_split(0, 300);
@@ -118,8 +132,11 @@ int MPTNew_test_brk_grow_shrink()
         return 1;
     }
 
+    dprintf("test brk_grow_shrink: chid=%u\n", chid);
+
     /* Query current break — should be VM_USERLO after brk_init */
     brk0 = sys_brk(chid, 0);
+    dprintf("test brk_grow_shrink: query brk0=0x%x\n", brk0);
     if (brk0 != 0x40000000) {
         dprintf("test brk_grow_shrink failed: initial query returned 0x%x, expected 0x40000000\n", brk0);
         return 1;
@@ -127,6 +144,7 @@ int MPTNew_test_brk_grow_shrink()
 
     /* Grow by 4 pages */
     brk1 = sys_brk(chid, brk0 + 4 * 4096);
+    dprintf("test brk_grow_shrink: grow -> brk1=0x%x\n", brk1);
     if (brk1 != brk0 + 4 * 4096) {
         dprintf("test brk_grow_shrink failed: grow returned 0x%x, expected 0x%x\n",
                 brk1, brk0 + 4 * 4096);
@@ -136,6 +154,7 @@ int MPTNew_test_brk_grow_shrink()
     /* All 4 pages must be mapped */
     for (i = 0; i < 4; i++) {
         pte = get_ptbl_entry_by_va(chid, brk0 + i * 4096);
+        dprintf("test brk_grow_shrink: after grow pte[%u]=0x%x\n", i, pte);
         if (!(pte & PTE_P)) {
             dprintf("test brk_grow_shrink failed: page %u not mapped after grow\n", i);
             sys_brk(chid, brk0);
@@ -145,6 +164,7 @@ int MPTNew_test_brk_grow_shrink()
 
     /* Shrink back to brk0 */
     brk2 = sys_brk(chid, brk0);
+    dprintf("test brk_grow_shrink: shrink -> brk2=0x%x\n", brk2);
     if (brk2 != brk0) {
         dprintf("test brk_grow_shrink failed: shrink returned 0x%x, expected 0x%x\n",
                 brk2, brk0);
@@ -154,6 +174,7 @@ int MPTNew_test_brk_grow_shrink()
     /* Pages must be unmapped */
     for (i = 0; i < 4; i++) {
         pte = get_ptbl_entry_by_va(chid, brk0 + i * 4096);
+        dprintf("test brk_grow_shrink: after shrink pte[%u]=0x%x\n", i, pte);
         if (pte & PTE_P) {
             dprintf("test brk_grow_shrink failed: page %u still mapped after shrink\n", i);
             return 1;
@@ -166,6 +187,7 @@ int MPTNew_test_brk_grow_shrink()
 
 int MPTNew_test_own()
 {
+    dprintf("test MPTNew_own: begin\n");
     return MPTNew_test_alloc_free_pages() + MPTNew_test_brk_grow_shrink();
 }
 

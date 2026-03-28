@@ -72,12 +72,19 @@ int MPTKern_test_map_superpage()
     unsigned int pde, page_index, pde_index;
     unsigned int vaddr = 4096 * 1024 * 256;  /* 0x40000000, PDE index 256 */
 
+    dprintf("test map_superpage: begin (vaddr=0x%x)\n", vaddr);
+
     page_index = 0x40000;  /* 1024-page aligned = 0x40000000 physical */
+
+    dprintf("test map_superpage: map page_index=%u (phys=0x%x)\n", page_index, page_index << 12);
 
     map_superpage(2, vaddr, page_index, PTE_P | PTE_W | PTE_U);
 
     pde_index = vaddr >> 22;  /* = 256 */
     pde = get_pdir_entry(2, pde_index);
+
+        dprintf("test map_superpage: pde_index=%u pde=0x%x is_superpage=%u\n",
+            pde_index, pde, is_superpage(2, pde_index));
 
     /* PDE must have PTE_PS set */
     if (!(pde & PTE_PS)) {
@@ -115,12 +122,17 @@ int MPTKern_test_unmap_superpage()
     unsigned int vaddr = 4096 * 1024 * 257;  /* PDE index 257 */
     unsigned int page_index = 0x40400;  /* 1024-aligned */
 
+    dprintf("test unmap_superpage: begin (vaddr=0x%x page_index=%u)\n", vaddr, page_index);
+
     map_superpage(2, vaddr, page_index, PTE_P | PTE_W | PTE_U);
 
     pde_index = vaddr >> 22;  /* = 257 */
 
     /* Verify it's mapped first */
     pde = get_pdir_entry(2, pde_index);
+
+        dprintf("test unmap_superpage: mapped pde_index=%u pde=0x%x is_superpage=%u\n",
+            pde_index, pde, is_superpage(2, pde_index));
     if (pde == 0) {
         dprintf("test unmap_superpage failed: PDE not set after map\n");
         return 1;

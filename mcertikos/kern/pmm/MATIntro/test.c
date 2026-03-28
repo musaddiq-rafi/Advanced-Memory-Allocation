@@ -94,9 +94,13 @@ int MATIntro_test_own()
     unsigned int test_orders[] = { 0, 1, 5, 10, 3, 7 };
     unsigned int page_idx = 2;  /* use page 2 to avoid clobbering pages 0/1 used above */
 
+    dprintf("own test: begin (page_idx=%u)\n", page_idx);
+
     /* --- Test at_set_order / at_get_order round-trip --- */
     unsigned int orig_order = at_get_order(page_idx);
+    dprintf("own test: orig order=%u\n", orig_order);
     for (i = 0; i < 6; i++) {
+        dprintf("own test: set order=%u\n", test_orders[i]);
         at_set_order(page_idx, test_orders[i]);
         if (at_get_order(page_idx) != test_orders[i]) {
             dprintf("own test order failed (i = %d): (%d != %d)\n",
@@ -106,22 +110,27 @@ int MATIntro_test_own()
         }
     }
     at_set_order(page_idx, orig_order);
+    dprintf("own test: restored order=%u\n", at_get_order(page_idx));
 
     /* --- Test at_set_head / at_is_head round-trip --- */
     unsigned int orig_head = at_is_head(page_idx);
+    dprintf("own test: orig head=%u\n", orig_head);
     at_set_head(page_idx, 1);
+    dprintf("own test: set head=1 -> at_is_head=%u\n", at_is_head(page_idx));
     if (at_is_head(page_idx) != 1) {
         dprintf("own test head failed: (%d != 1)\n", at_is_head(page_idx));
         at_set_head(page_idx, orig_head);
         return 1;
     }
     at_set_head(page_idx, 0);
+    dprintf("own test: set head=0 -> at_is_head=%u\n", at_is_head(page_idx));
     if (at_is_head(page_idx) != 0) {
         dprintf("own test head failed: (%d != 0)\n", at_is_head(page_idx));
         at_set_head(page_idx, orig_head);
         return 1;
     }
     at_set_head(page_idx, orig_head);
+    dprintf("own test: restored head=%u\n", at_is_head(page_idx));
 
     dprintf("own test passed.\n");
     return 0;

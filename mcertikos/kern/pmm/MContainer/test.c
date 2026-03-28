@@ -71,6 +71,8 @@ int MContainer_test_alloc_n()
 {
     unsigned int chid, old_usage_0, pi;
 
+    dprintf("test alloc_n: begin\n");
+
     /* Create a child with quota 100 for isolated testing */
     old_usage_0 = container_get_usage(0);
     chid = container_split(0, 100);
@@ -79,11 +81,17 @@ int MContainer_test_alloc_n()
         return 1;
     }
 
+    dprintf("test alloc_n: chid=%u quota=%u parent_usage_before=%u\n",
+            chid, container_get_quota(chid), old_usage_0);
+
     pi = container_alloc_n(chid, 3);  /* 2^3 = 8 pages */
     if (pi == 0) {
         dprintf("test alloc_n failed: container_alloc_n returned 0\n");
         return 1;
     }
+
+    dprintf("test alloc_n: allocated pi=%u (order=3, pages=8) usage_now=%u\n",
+            pi, container_get_usage(chid));
     if (container_get_usage(chid) != 8) {
         dprintf("test alloc_n failed: usage = %d, expected 8\n", container_get_usage(chid));
         container_free_n(chid, pi, 3);
@@ -92,6 +100,7 @@ int MContainer_test_alloc_n()
 
     /* Clean up */
     container_free_n(chid, pi, 3);
+    dprintf("test alloc_n: freed pi=%u usage_now=%u\n", pi, container_get_usage(chid));
     if (container_get_usage(chid) != 0) {
         dprintf("test alloc_n failed: usage after free = %d, expected 0\n", container_get_usage(chid));
         return 1;
@@ -108,6 +117,8 @@ int MContainer_test_free_n()
 {
     unsigned int chid, pi, usage_before;
 
+    dprintf("test free_n: begin\n");
+
     /* Create a child with quota 64 */
     chid = container_split(0, 64);
     if (chid >= 64) {
@@ -115,13 +126,20 @@ int MContainer_test_free_n()
         return 1;
     }
 
+    dprintf("test free_n: chid=%u quota=%u\n", chid, container_get_quota(chid));
+
     usage_before = container_get_usage(chid);  /* should be 0 */
+
+    dprintf("test free_n: usage_before=%u\n", usage_before);
 
     pi = container_alloc_n(chid, 2);  /* 2^2 = 4 pages */
     if (pi == 0) {
         dprintf("test free_n failed: container_alloc_n returned 0\n");
         return 1;
     }
+
+    dprintf("test free_n: allocated pi=%u (order=2, pages=4) usage_now=%u\n",
+            pi, container_get_usage(chid));
     if (container_get_usage(chid) != usage_before + 4) {
         dprintf("test free_n failed: usage = %d, expected %d\n",
                 container_get_usage(chid), usage_before + 4);
@@ -130,6 +148,7 @@ int MContainer_test_free_n()
     }
 
     container_free_n(chid, pi, 2);
+    dprintf("test free_n: freed pi=%u usage_now=%u\n", pi, container_get_usage(chid));
     if (container_get_usage(chid) != usage_before) {
         dprintf("test free_n failed: usage after free = %d, expected %d\n",
                 container_get_usage(chid), usage_before);
@@ -148,6 +167,8 @@ int MContainer_test_quota_limit()
 {
     unsigned int chid, pi, usage_before;
 
+    dprintf("test quota_limit: begin\n");
+
     /* Create a child with quota 4 — just enough for order-2 but not order-3 */
     chid = container_split(0, 4);
     if (chid >= 64) {
@@ -155,10 +176,16 @@ int MContainer_test_quota_limit()
         return 1;
     }
 
+    dprintf("test quota_limit: chid=%u quota=%u\n", chid, container_get_quota(chid));
+
     usage_before = container_get_usage(chid);  /* 0 */
+
+    dprintf("test quota_limit: usage_before=%u\n", usage_before);
 
     /* order-3 needs 8 pages, quota is only 4 — must fail */
     pi = container_alloc_n(chid, 3);
+    dprintf("test quota_limit: try alloc order=3 -> pi=%u usage_now=%u\n",
+            pi, container_get_usage(chid));
     if (pi != 0) {
         dprintf("test quota_limit failed: alloc should have returned 0 but got %u\n", pi);
         container_free_n(chid, pi, 3);
@@ -172,11 +199,14 @@ int MContainer_test_quota_limit()
 
     /* order-2 needs 4 pages, quota is 4 — should succeed */
     pi = container_alloc_n(chid, 2);
+    dprintf("test quota_limit: try alloc order=2 -> pi=%u usage_now=%u\n",
+            pi, container_get_usage(chid));
     if (pi == 0) {
         dprintf("test quota_limit failed: order-2 alloc returned 0\n");
         return 1;
     }
     container_free_n(chid, pi, 2);
+    dprintf("test quota_limit: freed pi=%u usage_now=%u\n", pi, container_get_usage(chid));
 
     dprintf("test quota_limit passed.\n");
     return 0;
@@ -189,17 +219,24 @@ int MContainer_test_backward_compat()
 {
     unsigned int chid, pi, usage_after_alloc;
 
+    dprintf("test backward_compat: begin\n");
+
     chid = container_split(0, 50);
     if (chid >= 64) {
         dprintf("test backward_compat failed: container_split returned %u\n", chid);
         return 1;
     }
 
+    dprintf("test backward_compat: chid=%u quota=%u\n", chid, container_get_quota(chid));
+
     pi = container_alloc(chid);
     if (pi == 0) {
         dprintf("test backward_compat failed: container_alloc returned 0\n");
         return 1;
     }
+
+    dprintf("test backward_compat: allocated pi=%u usage_now=%u\n",
+            pi, container_get_usage(chid));
     usage_after_alloc = container_get_usage(chid);
     if (usage_after_alloc != 1) {
         dprintf("test backward_compat failed: usage = %d, expected 1\n", usage_after_alloc);
@@ -208,6 +245,9 @@ int MContainer_test_backward_compat()
     }
 
     container_free(chid, pi);
+
+    dprintf("test backward_compat: freed pi=%u usage_now=%u\n",
+            pi, container_get_usage(chid));
     if (container_get_usage(chid) != 0) {
         dprintf("test backward_compat failed: usage after free = %d\n", container_get_usage(chid));
         return 1;

@@ -48,15 +48,21 @@ int MATOp_test_palloc_n_orders()
     unsigned int num_orders = 3;
     unsigned int idx, pi, block_size, i, order;
 
+    dprintf("test palloc_n_orders: begin\n");
+
     for (idx = 0; idx < num_orders; idx++) {
         order = orders[idx];
         block_size = 1u << order;
+
+        dprintf("test palloc_n_orders: alloc order=%u (block_size=%u pages)\n", order, block_size);
 
         pi = palloc_n(order);
         if (pi == 0) {
             dprintf("test palloc_n_orders failed: palloc_n(%u) returned 0\n", order);
             return 1;
         }
+
+        dprintf("test palloc_n_orders: got pi=%u (phys=0x%x)\n", pi, pi << 12);
         /* Must be in user range */
         if (pi < VM_USERLO_PI || pi + block_size > VM_USERHI_PI) {
             dprintf("test palloc_n_orders failed: order %u, pi %u out of user range\n", order, pi);
@@ -89,8 +95,12 @@ int MATOp_test_palloc_n_orders()
             return 1;
         }
 
+        dprintf("test palloc_n_orders: head metadata ok (is_head=%u order=%u)\n",
+                at_is_head(pi), at_get_order(pi));
+
         /* Free and verify all pages cleared */
         pfree_n(pi, order);
+        dprintf("test palloc_n_orders: freed pi=%u order=%u\n", pi, order);
         for (i = 0; i < block_size; i++) {
             if (at_is_allocated(pi + i) != 0) {
                 dprintf("test palloc_n_orders failed: order %u, page %u still allocated after free\n", order, pi + i);
@@ -112,12 +122,16 @@ int MATOp_test_split_coalesce()
 {
     unsigned int pi1, pa, pb;
 
+    dprintf("test split_coalesce: begin\n");
+
     /* Allocate an order-1 block (2 consecutive pages) */
     pi1 = palloc_n(1);
     if (pi1 == 0) {
         dprintf("test split_coalesce failed: initial palloc_n(1) returned 0\n");
         return 1;
     }
+
+    dprintf("test split_coalesce: allocated order-1 pi=%u (phys=0x%x)\n", pi1, pi1 << 12);
     if ((pi1 & 1) != 0) {
         dprintf("test split_coalesce failed: order-1 block %u not 2-aligned\n", pi1);
         pfree_n(pi1, 1);
@@ -126,6 +140,7 @@ int MATOp_test_split_coalesce()
 
     /* Free to return it to the pool */
     pfree_n(pi1, 1);
+    dprintf("test split_coalesce: freed order-1 pi=%u\n", pi1);
 
     /* Now allocate two order-0 blocks — they should come from the split
      * of the block we just freed (or an equivalent one). */
@@ -138,6 +153,8 @@ int MATOp_test_split_coalesce()
         return 1;
     }
 
+    dprintf("test split_coalesce: allocated order-0 pa=%u pb=%u\n", pa, pb);
+
     /* Both must be allocated */
     if (at_is_allocated(pa) != 1 || at_is_allocated(pb) != 1) {
         dprintf("test split_coalesce failed: pages not marked allocated\n");
@@ -149,6 +166,8 @@ int MATOp_test_split_coalesce()
     /* Free both — they should coalesce */
     pfree_n(pa, 0);
     pfree_n(pb, 0);
+
+    dprintf("test split_coalesce: freed order-0 pa=%u pb=%u\n", pa, pb);
 
     /* After freeing both, neither should be allocated */
     if (at_is_allocated(pa) != 0 || at_is_allocated(pb) != 0) {
@@ -163,6 +182,8 @@ int MATOp_test_split_coalesce()
         dprintf("test split_coalesce failed: re-alloc order-1 returned 0 (coalesce broken?)\n");
         return 1;
     }
+
+    dprintf("test split_coalesce: re-allocated order-1 pi=%u\n", pi1);
     pfree_n(pi1, 1);
 
     dprintf("test split_coalesce passed.\n");
@@ -176,6 +197,8 @@ int MATOp_test_split_coalesce()
 int MATOp_test_backward_compat()
 {
     unsigned int p1, p2;
+
+    dprintf("test backward_compat: begin\n");
 
     p1 = palloc();
     if (p1 == 0) {
@@ -193,6 +216,8 @@ int MATOp_test_backward_compat()
         return 1;
     }
 
+    dprintf("test backward_compat: allocated p1=%u\n", p1);
+
     p2 = palloc();
     if (p2 == 0 || p2 == p1) {
         dprintf("test backward_compat failed: second palloc() returned %u (first was %u)\n", p2, p1);
@@ -201,8 +226,12 @@ int MATOp_test_backward_compat()
         return 1;
     }
 
+    dprintf("test backward_compat: allocated p2=%u\n", p2);
+
     pfree(p1);
     pfree(p2);
+
+    dprintf("test backward_compat: freed p1=%u p2=%u\n", p1, p2);
 
     if (at_is_allocated(p1) != 0 || at_is_allocated(p2) != 0) {
         dprintf("test backward_compat failed: pages still allocated after pfree\n");

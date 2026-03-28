@@ -74,10 +74,15 @@ int MPTIntro_test_superpage_pde()
 {
     unsigned int pde;
 
+    dprintf("test superpage_pde: begin\n");
+
     /* Use proc 2, pde 256 (VA 0x40000000) for isolation */
     set_pdir_entry_superpage(2, 256, 0x40000, PTE_P | PTE_W | PTE_U);
 
     pde = get_pdir_entry(2, 256);
+
+        dprintf("test superpage_pde: pde=0x%x (PTE_PS=%u) is_superpage=%u\n",
+            pde, (pde & PTE_PS) ? 1 : 0, is_superpage(2, 256));
     if (!(pde & PTE_PS)) {
         dprintf("test superpage_pde failed: PTE_PS not set (pde=0x%x)\n", pde);
         rmv_pdir_entry(2, 256);
@@ -102,12 +107,17 @@ int MPTIntro_test_superpage_addr()
 {
     unsigned int pde, expected_addr, perm;
 
+    dprintf("test superpage_addr: begin\n");
+
     /* page_index = 0x40000 (1024-page aligned), perm = P|W|U = 7 */
     set_pdir_entry_superpage(2, 257, 0x40000, PTE_P | PTE_W | PTE_U);
 
     pde = get_pdir_entry(2, 257);
     expected_addr = 0x40000 << 12;  /* = 0x40000000 */
     perm = PTE_P | PTE_W | PTE_U | PTE_PS;  /* 0x087 */
+
+        dprintf("test superpage_addr: pde=0x%x expected_addr=0x%x expected_perm=0x%x\n",
+            pde, expected_addr, perm);
 
     if ((pde & 0xFFFFF000) != expected_addr) {
         dprintf("test superpage_addr failed: addr 0x%x != 0x%x\n",
@@ -135,9 +145,14 @@ int MPTIntro_test_not_superpage()
 {
     unsigned int pde;
 
+    dprintf("test not_superpage: begin\n");
+
     set_pdir_entry(2, 258, 10000);
 
     pde = get_pdir_entry(2, 258);
+
+        dprintf("test not_superpage: pde=0x%x (PTE_PS=%u) is_superpage=%u\n",
+            pde, (pde & PTE_PS) ? 1 : 0, is_superpage(2, 258));
     if (pde & PTE_PS) {
         dprintf("test not_superpage failed: PTE_PS is set on regular entry (pde=0x%x)\n", pde);
         rmv_pdir_entry(2, 258);

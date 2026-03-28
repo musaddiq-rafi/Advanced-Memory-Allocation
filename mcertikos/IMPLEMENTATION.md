@@ -465,3 +465,201 @@ The aggregator is now: `MPTKern_test1() + MPTKern_test2() + MPTKern_test_map_sup
 - `pdir_init_kern` is unchanged.
 - The two new functions are purely additive; no existing signatures or behavior are affected.
 - Existing tests (`MPTKern_test1`, `MPTKern_test2`) continue to pass.
+
+---
+
+## Phase 6 — Multi-Page Alloc API + `brk` Core (`MPTNew`)
+
+### Goal
+
+Extend MPTNew from single-page fault-time mapping to a full multi-page allocation/free API (`alloc_pages`, `free_pages`) and add kernel-side heap break management (`sys_brk`) with rollback on partial allocation failure.
+
+### Changes
+
+#### 1. `kern/vmm/MPTNew/MPTNew.c`
+
+Added a per-process break table and initialization routine:
+
+```c
+static unsigned int proc_brk[NUM_IDS];
+
+void brk_init(void)
+{
+    unsigned int i;
+    for (i = 0; i < NUM_IDS; i++)
+        proc_brk[i] = VM_USERLO;
+}
+```
+
+Added three new allocation/free helpers:
+
+| Function | Signature | Description |
+|---|---|---|
+| `alloc_pages` | `unsigned int alloc_pages(unsigned int proc_index, unsigned int vaddr, unsigned int perm, unsigned int order)` | Allocates `2^order` physically consecutive pages via `container_alloc_n`, then maps them starting at `vaddr`. If `order == MAX_ORDER` and `vaddr` is 4 MB-aligned, it uses `map_superpage`. On partial mapping failure, it rolls back all prior mappings and frees the allocated physical block. |
+| `free_pages` | `void free_pages(unsigned int proc_index, unsigned int vaddr, unsigned int order)` | Unmaps and frees a `2^order` block. Detects super-page mappings using `is_superpage`; for super-pages, reads physical base from PDE and calls `unmap_superpage`; otherwise unmaps each PTE and frees via `container_free_n`. |
+| `free_range` | `void free_range(unsigned int proc_index, unsigned int start, unsigned int end)` | Walks `[start, end)` and frees block-by-block using buddy order metadata from `at_get_order`. If a block would overrun `end`, it downgrades order until the block fits. |
+
+Added kernel syscall core:
+
+| Function | Signature | Description |
+|---|---|---|
+| `sys_brk` | `unsigned int sys_brk(unsigned int proc_index, unsigned int new_brk)` | Implements query/grow/shrink semantics. `new_brk == 0` returns current break; out-of-range returns 0; otherwise page-aligns up and grows/shrinks heap mappings. Grow path greedily picks the largest aligned buddy order that fits the remaining span and rolls back with `free_range(old_brk, addr)` on OOM. |
+
+The original functions are preserved:
+- `alloc_page` remains as the page-fault single-page helper.
+- `alloc_mem_quota` remains the `container_split` wrapper.
+
+#### 2. `kern/vmm/MPTNew/export.h`
+
+Added exports for all new Phase 6 symbols:
+
+```c
+unsigned int alloc_pages(unsigned int proc_index, unsigned int vaddr,
+                         unsigned int perm, unsigned int order);
+void free_pages(unsigned int proc_index, unsigned int vaddr,
+                unsigned int order);
+void free_range(unsigned int proc_index, unsigned int start,
+                unsigned int end);
+void brk_init(void);
+unsigned int sys_brk(unsigned int proc_index, unsigned int new_brk);
+```
+
+#### 3. `kern/vmm/MPTNew/import.h`
+
+Added imports required by the new implementation:
+
+- From MContainer: `container_alloc_n`, `container_free_n`.
+- From MPTKern: `map_superpage`, `unmap_superpage`.
+- From MPTIntro: `is_superpage`, `get_pdir_entry`, `get_ptbl_entry_by_va`.
+- From MATIntro: `at_get_order` (used by `free_range`).
+
+#### 4. `kern/vmm/MPTNew/test.c`
+
+Replaced the empty `MPTNew_test_own()` with two concrete tests:
+
+| Test | What it verifies |
+|---|---|
+| `MPTNew_test_alloc_free_pages` | `alloc_pages(..., order=2)` maps 4 pages and `free_pages` clears all 4 PTEs afterwards. |
+| `MPTNew_test_brk_grow_shrink` | `sys_brk` query returns `VM_USERLO` (after `brk_init`), grow-by-4-pages maps all pages, shrink-to-original unmaps them cleanly. |
+
+`MPTNew_test_own()` now returns `MPTNew_test_alloc_free_pages() + MPTNew_test_brk_grow_shrink()`, and `test_MPTNew()` remains `MPTNew_test1() + MPTNew_test_own()`.
+
+#### 5. `kern/vmm/MPTInit/MPTInit.c`
+
+Extended the paging init sequence to initialize break state:
+
+```c
+void paging_init(unsigned int mbi_addr)
+{
+    pdir_init_kern(mbi_addr);
+    enable_pse();
+    brk_init();
+    set_pdir_base(0);
+    enable_paging();
+}
+```
+
+This ensures `proc_brk[]` is ready before user processes begin running.
+
+#### 6. `kern/vmm/MPTInit/import.h`
+
+Added `void brk_init(void);` so `paging_init` can invoke it.
+
+### Backward Compatibility
+
+- `alloc_page` and `alloc_mem_quota` signatures and behavior remain available for existing call paths.
+- Existing page-fault flow still uses `alloc_page`; no changes to trap-time demand paging semantics were required for legacy callers.
+- All new functionality is additive in `MPTNew/export.h`.
+
+---
+
+## Phase 7 — Syscall Plumbing (`trap` + userspace `brk`)
+
+### Goal
+
+Connect userspace `brk()` calls to kernel `sys_brk()` by adding syscall-number constants, trap dispatch for `T_SYSCALL`, and a userspace interrupt stub.
+
+### Changes
+
+#### 1. `kern/lib/x86.h`
+
+Added the system call number constant:
+
+```c
+#define SYS_BRK      1
+```
+
+This constant is used by both kernel trap dispatch and userspace syscall wrapper.
+
+#### 2. `kern/lib/trap.c`
+
+Added a dedicated syscall dispatcher:
+
+```c
+static void syscall_handler(tf_t *tf)
+{
+    unsigned int syscall_num = tf->regs.eax;
+    switch (syscall_num) {
+        case SYS_BRK: {
+            unsigned int new_brk = tf->regs.ebx;
+            tf->regs.eax = sys_brk(CID, new_brk);
+            break;
+        }
+        default:
+            tf->regs.eax = (unsigned int)-1;
+            break;
+    }
+}
+```
+
+Extended `trap(tf_t *tf)` with a `T_SYSCALL` branch:
+
+- Switch to kernel page directory (`set_pdir_base(0)`).
+- Run `syscall_handler(tf)`.
+- Restore current process page directory (`set_pdir_base(CID)`) before returning.
+
+This mirrors the existing page-fault flow and keeps execution context handling consistent.
+
+#### 3. `user/include/syscall.h`
+
+Added userspace prototype:
+
+```c
+void *brk(void *addr);
+```
+
+#### 4. `user/lib/fake_syscall.c`
+
+Added a userspace syscall stub using software interrupt 48 (`T_SYSCALL`):
+
+```c
+#define SYS_BRK    1
+#define T_SYSCALL  48
+
+void *brk(void *addr)
+{
+    unsigned int result;
+    __asm__ __volatile__ (
+        "movl %1, %%eax\n"
+        "movl %2, %%ebx\n"
+        "int  %3\n"
+        "movl %%eax, %0\n"
+        : "=r" (result)
+        : "i" (SYS_BRK),
+          "r" ((unsigned int)(addr)),
+          "i" (T_SYSCALL)
+        : "eax", "ebx"
+    );
+    return (void *)result;
+}
+```
+
+Calling convention:
+- Input: `eax = SYS_BRK`, `ebx = new_brk` (0 means query).
+- Output: return value in `eax`.
+
+### Backward Compatibility
+
+- Existing trap handling for page faults (`T_PGFLT`) is unchanged.
+- Unknown syscall numbers return `(unsigned int)-1`, preserving robust behavior for unsupported calls.
+- Existing userspace APIs (`yield`, `sys_getc`, `sys_puts`) remain unchanged; `brk` is additive.
